@@ -1,0 +1,43 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vddk-builder
+  namespace: openshift-mtv
+rules:
+  - apiGroups:
+      - build.openshift.io
+    resources:
+      - builds
+      - buildconfigs
+      - buildconfigs/instantiate
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+
+  - apiGroups:
+    - image.openshift.io
+    resources:
+      - imagestreamtags
+      - imagestreams
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vddk-builder-binding
+  namespace: openshift-mtv
+subjects:
+  - kind: ServiceAccount
+    name: forklift-controller
+    namespace: openshift-mtv
+roleRef:
+  kind: Role
+  name: vddk-builder
+  apiGroup: rbac.authorization.k8s.io
+---

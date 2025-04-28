@@ -1,0 +1,54 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: forklift-controller-token
+  annotations:
+    kubernetes.io/service-account.name: forklift-controller
+type: kubernetes.io/service-account-token
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: vddk
+  namespace: openshift-mtv
+spec:
+  successfulBuildsHistoryLimit: 1
+  failedBuildsHistoryLimit: 1
+  source:
+    dockerfile: |
+      FROM registry.access.redhat.com/ubi9/ubi-minimal
+      COPY secrets/token /tmp/secrets/token
+      RUN microdnf install -y tar gzip file \
+       && curl -k \
+            -H "Authorization: Bearer $(cat /tmp/secrets/token)" \
+            https://forklift-inventory.openshift-mtv.svc.cluster.local:8443/providers/vsphere/vddk/download-tar \
+            -o /vddk.tar.gz \
+       && tar -zxvf /vddk.tar.gz
+      ENTRYPOINT ["cp", "-r", "/vmware-vix-disklib-distrib", "/opt"]
+    secrets:
+      - secret:
+          name: forklift-controller-token
+        destinationDir: secrets
+  strategy:
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: "vddk:latest"
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: vddk
+  namespace: openshift-mtv
+spec:
+  lookupPolicy:
+    local: true
+  tags:
+    - importPolicy:
+        importMode: Legacy
+      name: latest
+      referencePolicy:
+        type: Source
+---
