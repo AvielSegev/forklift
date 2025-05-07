@@ -261,7 +261,7 @@ func resetBusy() {
 	buildLock.Unlock()
 }
 
-// resetBusyAfter schedules a reset of the busy flag after the specified timeout
+// resetBusyAfter schedules a reset of the busy flag after the specified timeout in separate go routine
 func resetBusyAfter(timeout time.Duration) {
 	go func() {
 		time.Sleep(timeout)
