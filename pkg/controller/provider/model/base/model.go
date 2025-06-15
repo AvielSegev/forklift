@@ -45,6 +45,7 @@ func (r InvalidKindError) Error() string {
 
 // VM concerns.
 type Concern struct {
+	ID         string `json:"id"`
 	Label      string `json:"label"`
 	Category   string `json:"category"`
 	Assessment string `json:"assessment"`

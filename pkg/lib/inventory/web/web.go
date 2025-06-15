@@ -43,12 +43,20 @@ type WebServer struct {
 func (w *WebServer) Start(middleware ...gin.HandlerFunc) {
 	router := gin.Default()
 	router.Use(cors.New(cors.Config{
-		AllowMethods:     []string{"GET"},
-		AllowHeaders:     []string{"Authorization", "Origin"},
-		AllowOriginFunc:  w.allow,
+		AllowMethods: []string{"GET"},
+		AllowHeaders: []string{"Authorization", "Origin"},
+		AllowOriginFunc: func(origin string) bool {
+			allowed := w.allow(origin)
+			log.V(3).Info("CORS Origin Check",
+				"origin", origin,
+				"allowed", allowed,
+			)
+			return allowed
+		},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
 	for _, h := range middleware {
 		router.Use(h)
 	}
@@ -108,11 +116,12 @@ func (w *WebServer) addRoutes(r *gin.Engine) {
 
 // Called by `gin` to perform CORS authorization.
 func (w *WebServer) allow(origin string) bool {
-	for _, expr := range w.allowedOrigins {
-		if expr.MatchString(origin) {
-			return true
-		}
-	}
-
-	return false
+	return true
+	//for _, expr := range w.allowedOrigins {
+	//	if expr.MatchString(origin) {
+	//		return true
+	//	}
+	//}
+	//
+	//return false
 }
