@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"net"
 	"strconv"
 	"strings"
@@ -1590,6 +1593,73 @@ func (r *Reconciler) cancelOtherActiveVddkCheckJobs(plan *api.Plan) (err error) 
 	return nil
 }
 
+func ensurePullPermissions(ctx *plancontext.Context, imageNamespace, targetNamespace string) error {
+	if !settings.Settings.OpenShift {
+		return nil
+	}
+
+	roleBindingName := "allow-vddk-image-pull-from-internal-openshift-registry"
+
+	// Try to get existing RoleBinding
+	var existingRoleBinding rbacv1.RoleBinding
+	err := ctx.Destination.Client.Get(context.TODO(),
+		types.NamespacedName{Name: roleBindingName, Namespace: imageNamespace},
+		&existingRoleBinding,
+	)
+
+	if err != nil && !k8serr.IsNotFound(err) {
+		return err
+	}
+
+	// Define the new subject to add
+	newSubject := rbacv1.Subject{
+		Kind:      "ServiceAccount",
+		Name:      "default",
+		Namespace: targetNamespace,
+	}
+
+	if k8serr.IsNotFound(err) {
+		// RoleBinding doesn't exist yet, create it
+		roleBinding := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      roleBindingName,
+				Namespace: imageNamespace,
+			},
+			Subjects: []rbacv1.Subject{newSubject},
+			RoleRef: rbacv1.RoleRef{
+				Kind:     "ClusterRole",
+				Name:     "system:image-puller",
+				APIGroup: "rbac.authorization.k8s.io",
+			},
+		}
+		return ctx.Destination.Client.Create(context.TODO(), roleBinding)
+	}
+
+	// Check if subject already exists
+	for _, subj := range existingRoleBinding.Subjects {
+		if subj.Namespace == newSubject.Namespace {
+			return nil // Already exists
+		}
+	}
+
+	// Patch to add the new subject
+	updatedSubjects := append(existingRoleBinding.Subjects, newSubject)
+	patch := map[string]interface{}{
+		"subjects": updatedSubjects,
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+
+	return ctx.Destination.Client.Patch(
+		context.TODO(),
+		&existingRoleBinding,
+		client.RawPatch(types.MergePatchType, patchBytes),
+	)
+}
+
 func (r *Reconciler) ensureVddkImageValidationJob(plan *api.Plan) (*batchv1.Job, error) {
 	ctx, err := plancontext.New(r, plan, r.Log)
 	if err != nil {
@@ -1619,6 +1689,10 @@ func (r *Reconciler) ensureVddkImageValidationJob(plan *api.Plan) (*batchv1.Job,
 		return nil, err
 	case len(jobs.Items) == 0:
 		job := createVddkCheckJob(ctx.Plan)
+		err = ensurePullPermissions(ctx, settings.Settings.Namespace, job.Namespace)
+		if err != nil {
+			return nil, liberr.Wrap(err)
+		}
 		err = ctx.Destination.Client.Create(context.Background(), job)
 		if err != nil {
 			return nil, err
